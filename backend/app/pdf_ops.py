@@ -1852,7 +1852,10 @@ def _find_replace_core(
                             font_cache=font_obj_cache,
                         )
 
-                    if embedded_fontfile and not forced_windows and can_use_embedded:
+                    # Important: if the embedded font is a subset and the replacement
+                    # introduces new characters, reusing the embedded program can
+                    # render missing letters. In those cases prefer a full font.
+                    if embedded_fontfile and not forced_windows and can_use_embedded and not prefer_full_font:
                         try:
                             embed_name = f"emb_{_normalize_fontname(style.fontname or 'font')}_{page_index}"
                             if collect_debug and not debug:
