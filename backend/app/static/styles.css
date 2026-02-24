@@ -1,0 +1,56 @@
+@keyframes panelIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.panel-in {
+  animation: panelIn 240ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-in {
+    animation: none;
+  }
+  .shimmer {
+    animation: none;
+  }
+  .floaty {
+    animation: none;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 100% 50%;
+  }
+}
+
+.shimmer {
+  background-size: 200% 200%;
+  animation: shimmer 1.4s ease infinite;
+}
+
+@keyframes floaty {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(0, 14px, 0) scale(1.02);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.floaty {
+  animation: floaty 6s ease-in-out infinite;
+}

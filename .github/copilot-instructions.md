@@ -1,0 +1,5 @@
+- [x] Clarify Project Requirements
+- [x] Scaffold the Project
+- [x] Customize the Project
+- [x] Compile the Project
+- [x] Ensure Documentation is Complete
