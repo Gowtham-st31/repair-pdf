@@ -602,6 +602,22 @@ function wireFindReplace() {
   const pdfInput = $("#pdf-find");
   const preview = $("#preview-find");
 
+  const fontChoice = form.querySelector("select[name='fontChoice']");
+  const fontModeAuto = form.querySelector("input[name='fontMode'][value='auto']");
+  const fontModeManual = form.querySelector("input[name='fontMode'][value='manual']");
+
+  function updateFontMode() {
+    const manual = Boolean(fontModeManual && fontModeManual.checked);
+    if (fontChoice) {
+      // Disabled fields are not submitted -> backend sees fontChoice=None (true Auto).
+      fontChoice.disabled = !manual;
+    }
+  }
+
+  if (fontModeAuto) fontModeAuto.addEventListener("change", updateFontMode);
+  if (fontModeManual) fontModeManual.addEventListener("change", updateFontMode);
+  updateFontMode();
+
   function updateScope() {
     const isRange = scopeRange.checked;
     rangeWrap.classList.toggle("hidden", !isRange);
