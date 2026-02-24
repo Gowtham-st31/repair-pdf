@@ -1987,7 +1987,10 @@ def _find_replace_core(
 
                     # If embedded exists but we didn't use it above, try it as a last resort
                     # before dropping to built-in fonts.
-                    if embedded_fontfile:
+                    # IMPORTANT: do not do this when we already decided we should prefer
+                    # a full font (e.g. subset fonts + new glyphs), otherwise letters can
+                    # go missing.
+                    if embedded_fontfile and not prefer_full_font:
                         try:
                             embed_name = f"emb_{_normalize_fontname(style.fontname or 'font')}_{page_index}"
                             if collect_debug and not debug:
