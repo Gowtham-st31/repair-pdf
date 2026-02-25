@@ -1,501 +1,242 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PDF Editor</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="/static/styles.css?v=5" />
-  </head>
-  <body class="bg-slate-50 text-slate-900">
-    <div class="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-      <div class="absolute -top-24 left-1/2 h-80 w-[40rem] -translate-x-1/2 rounded-full bg-gradient-to-r from-slate-200 via-white to-slate-200 blur-3xl opacity-70 floaty"></div>
-      <div class="absolute -bottom-32 left-1/2 h-80 w-[46rem] -translate-x-1/2 rounded-full bg-gradient-to-r from-slate-100 via-white to-slate-100 blur-3xl opacity-70 floaty" style="animation-delay: -2.4s"></div>
-    </div>
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RepairPDF — PDF Editor</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css?v=2" />
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { serif: ['Playfair Display','serif'], sans: ['Inter','sans-serif'] }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="font-sans bg-slate-50 min-h-screen text-slate-900 selection:bg-indigo-500/20">
+  <!-- ═══ FLOATING BG BLOBS ═══ -->
+  <div class="fixed inset-0 pointer-events-none overflow-hidden -z-10">
+    <div class="floaty absolute -top-40 -right-40 w-[700px] h-[700px] rounded-full bg-gradient-to-br from-indigo-100/50 to-purple-50/30 blur-3xl" style="animation-delay:0s"></div>
+    <div class="floaty absolute top-1/2 -left-60 w-[600px] h-[600px] rounded-full bg-gradient-to-tr from-slate-100/60 to-blue-50/30 blur-3xl" style="animation-delay:2s"></div>
+    <div class="floaty absolute -bottom-40 right-1/4 w-[500px] h-[500px] rounded-full bg-gradient-to-tl from-violet-50/40 to-pink-50/20 blur-3xl" style="animation-delay:4s"></div>
+  </div>
 
-    <div class="min-h-screen">
-      <header class="mx-auto max-w-5xl px-4 pt-10 pb-6">
-        <div class="flex items-center justify-between gap-4">
+  <!-- ═══ FIXED NAV ═══ -->
+  <nav class="fixed top-0 left-0 right-0 z-50">
+    <div class="mx-6 mt-4">
+      <div class="flex items-center justify-between bg-white/70 backdrop-blur-2xl rounded-[2rem] px-8 py-4 shadow-sm border border-white/60">
+        <div class="flex items-center gap-3 group cursor-pointer">
+          <div class="w-10 h-10 bg-slate-900 rounded-2xl flex items-center justify-center shadow-lg group-hover:bg-indigo-600 transition-colors duration-500">
+            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          </div>
           <div>
-            <h1 class="text-2xl font-semibold tracking-tight">PDF Editor</h1>
-            <p class="mt-1 text-sm text-slate-600">
-              Find/replace text, merge PDFs, reorder pages, and remove pages.
-            </p>
+            <h1 class="font-serif text-lg font-bold tracking-tight leading-none">RepairPDF</h1>
+            <p class="text-[10px] font-semibold text-slate-400 tracking-[0.25em] uppercase">Editor</p>
           </div>
-          <div class="hidden sm:block text-xs text-slate-500">Local, runs on FastAPI</div>
         </div>
-
-        <nav class="mt-6">
-          <div class="flex flex-wrap gap-2">
-            <button
-              id="tab-find"
-              type="button"
-              class="rounded-full border px-4 py-2 text-sm transition duration-200 hover:-translate-y-0.5 hover:bg-white active:translate-y-0"
-            >
-              Find & Replace
-            </button>
-            <button
-              id="tab-merge"
-              type="button"
-              class="rounded-full border px-4 py-2 text-sm transition duration-200 hover:-translate-y-0.5 hover:bg-white active:translate-y-0"
-            >
-              Merge PDFs
-            </button>
-            <button
-              id="tab-reorder"
-              type="button"
-              class="rounded-full border px-4 py-2 text-sm transition duration-200 hover:-translate-y-0.5 hover:bg-white active:translate-y-0"
-            >
-              Change Pages
-            </button>
-            <button
-              id="tab-remove"
-              type="button"
-              class="rounded-full border px-4 py-2 text-sm transition duration-200 hover:-translate-y-0.5 hover:bg-white active:translate-y-0"
-            >
-              Remove Pages
-            </button>
+        <div class="flex items-center gap-6">
+          <span id="nav-status" class="text-xs font-semibold text-slate-400 tracking-wider uppercase hidden">Ready</span>
+          <div id="nav-filename" class="hidden items-center gap-2 bg-slate-100 rounded-xl px-4 py-1.5">
+            <input id="filename-input" type="text" value="" class="bg-transparent text-sm font-semibold outline-none w-40" placeholder="document.pdf" />
+            <span class="text-xs text-slate-400 font-medium" id="page-count-badge"></span>
           </div>
-        </nav>
-      </header>
-
-      <main class="mx-auto max-w-5xl px-4 pb-16">
-        <section class="rounded-2xl border border-slate-200 bg-white">
-          <div class="border-b border-slate-200 px-6 py-5">
-            <div class="flex items-center justify-between">
-              <div class="text-sm font-medium">Tools</div>
-              <div class="text-xs text-slate-500">Output downloads as PDF</div>
-            </div>
-          </div>
-
-          <div class="p-6">
-            <!-- Find & Replace -->
-            <div id="panel-find" class="hidden">
-              <div class="mb-4">
-                <h2 class="text-lg font-semibold">Find & Replace Text</h2>
-                <p class="mt-1 text-sm text-slate-600">
-                  Choose all pages or a specific page.
-                </p>
-              </div>
-
-              <form id="form-find" data-preview-id="preview-find" class="space-y-4">
-                <div>
-                  <label class="text-sm font-medium">PDF file</label>
-                  <input
-                    id="pdf-find"
-                    name="pdf"
-                    type="file"
-                    accept="application/pdf"
-                    required
-                    class="mt-2 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm file:mr-4 file:rounded-lg file:border-0 file:bg-slate-900 file:px-4 file:py-2 file:text-sm file:font-medium file:text-white"
-                  />
-                </div>
-
-                <div class="rounded-xl border border-slate-200 p-4">
-                  <div class="flex items-center justify-between">
-                    <div class="text-sm font-medium">Preview</div>
-                    <div class="flex items-center gap-4">
-                      <label class="inline-flex items-center gap-2 text-xs text-slate-600">
-                        <input id="pick-find-text" type="checkbox" class="h-4 w-4" />
-                        <span>Pick text</span>
-                      </label>
-                      <div class="text-xs text-slate-500">Scroll to view pages</div>
-                    </div>
-                  </div>
-                  <div id="preview-find" class="mt-3 h-[28rem] overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-2"></div>
-                  <div class="mt-2 text-xs text-slate-500">When Pick text is on, click a word in the preview to copy it into “Find text”.</div>
-                </div>
-
-                <div class="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <label class="text-sm font-medium">Find text</label>
-                    <input
-                      name="findText"
-                      type="text"
-                      required
-                      class="mt-2 block w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                      placeholder="e.g. Invoice"
-                    />
-                  </div>
-                  <div>
-                    <label class="text-sm font-medium">Replace with</label>
-                    <input
-                      name="replaceText"
-                      type="text"
-                      class="mt-2 block w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                      placeholder="e.g. Receipt"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label class="text-sm font-medium">Font selection</label>
-                  <div class="mt-3 flex flex-wrap gap-4 text-sm">
-                    <label class="inline-flex items-center gap-2">
-                      <input type="radio" name="fontMode" value="auto" checked />
-                      <span>Auto (match original)</span>
-                    </label>
-                    <label class="inline-flex items-center gap-2">
-                      <input type="radio" name="fontMode" value="manual" />
-                      <span>Manual</span>
-                    </label>
-                  </div>
-
-                  <div class="mt-3">
-                    <label class="text-sm font-medium">Manual font</label>
-                    <select
-                      name="fontChoice"
-                      class="mt-2 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-                    >
-                      <option value="auto" selected>Auto (match original)</option>
-                      <option value="times">Times New Roman</option>
-                      <option value="calibri">Calibri</option>
-                      <option value="cambria">Cambria</option>
-                      <option value="constantia">Constantia</option>
-                      <option value="georgia">Georgia</option>
-                      <option value="garamond">Garamond</option>
-                      <option value="palatino">Palatino Linotype</option>
-                      <option value="arial">Arial</option>
-                      <option value="helvetica">Helvetica</option>
-                      <option value="courier">Courier (Monospace)</option>
-                      <option value="courier-new">Courier New (Windows)</option>
-                      <option value="consolas">Consolas (Windows)</option>
-                      <option value="dejavu-serif">DejaVu Serif (Linux)</option>
-                      <option value="dejavu-sans">DejaVu Sans (Linux)</option>
-                      <option value="dejavu-mono">DejaVu Sans Mono (Linux)</option>
-                      <option value="liberation-serif">Liberation Serif (Linux)</option>
-                      <option value="liberation-sans">Liberation Sans (Linux)</option>
-                      <option value="liberation-mono">Liberation Mono (Linux)</option>
-                      <option value="noto-sans">Noto Sans (Linux)</option>
-                      <option value="noto-serif">Noto Serif (Linux)</option>
-                      <option value="roboto">Roboto (Upload/Installed)</option>
-                      <option value="open-sans">Open Sans (Upload/Installed)</option>
-                    </select>
-                    <div class="mt-2 text-xs text-slate-500">Use Manual if the replaced text font doesn’t match.</div>
-                  </div>
-                </div>
-
-                <div>
-                  <label class="text-sm font-medium">Upload fonts (optional)</label>
-                  <input
-                    name="extraFonts"
-                    type="file"
-                    accept=".ttf,.otf"
-                    multiple
-                    class="mt-2 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm file:mr-4 file:rounded-lg file:border-0 file:bg-slate-900 file:px-4 file:py-2 file:text-sm file:font-medium file:text-white"
-                  />
-                  <div class="mt-2 text-xs text-slate-500">
-                    For exact matching, upload the same font files used by the PDF (TTF/OTF).
-                  </div>
-                </div>
-
-                <div class="rounded-xl border border-slate-200 p-4">
-                  <div class="text-sm font-medium">Scope</div>
-                  <div class="mt-3 flex flex-wrap gap-4 text-sm">
-                    <label class="inline-flex items-center gap-2">
-                      <input id="scope-all" type="radio" name="scope" value="all" checked />
-                      <span>All pages</span>
-                    </label>
-                    <label class="inline-flex items-center gap-2">
-                      <input id="scope-range" type="radio" name="scope" value="range" />
-                      <span>Page range</span>
-                    </label>
-                  </div>
-                  <div id="range-wrap" class="mt-3 hidden">
-                    <div class="grid gap-3 sm:grid-cols-2">
-                      <div>
-                        <label class="text-sm font-medium">From page (1-based)</label>
-                        <input
-                          name="fromPage"
-                          type="number"
-                          min="1"
-                          class="mt-2 block w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                          placeholder="1"
-                        />
-                      </div>
-                      <div>
-                        <label class="text-sm font-medium">To page (1-based)</label>
-                        <input
-                          name="toPage"
-                          type="number"
-                          min="1"
-                          class="mt-2 block w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                          placeholder="1"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    data-apply
-                    class="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition duration-200 hover:-translate-y-0.5 hover:bg-slate-800 active:translate-y-0"
-                  >
-                    Apply
-                  </button>
-                  <button
-                    type="button"
-                    data-download
-                    disabled
-                    class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-900 transition duration-200 hover:-translate-y-0.5 hover:bg-slate-50 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    Download
-                  </button>
-                  <div class="min-w-[16rem]">
-                    <label class="block text-xs text-slate-500">Output filename</label>
-                    <input
-                      data-filename
-                      type="text"
-                      value="find-replace.pdf"
-                      class="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                    />
-                  </div>
-                  <div data-hint class="text-sm text-slate-500"></div>
-                </div>
-
-                <div data-error class="text-sm text-rose-600"></div>
-              </form>
-            </div>
-
-            <!-- Merge -->
-            <div id="panel-merge" class="hidden">
-              <div class="mb-4">
-                <h2 class="text-lg font-semibold">Merge PDFs</h2>
-                <p class="mt-1 text-sm text-slate-600">Upload multiple PDFs to merge into one.</p>
-              </div>
-
-              <form id="form-merge" data-preview-id="preview-merge" class="space-y-4">
-                <div>
-                  <label class="text-sm font-medium">PDF files</label>
-                  <input
-                    id="pdf-merge"
-                    name="pdfs"
-                    type="file"
-                    accept="application/pdf"
-                    multiple
-                    required
-                    class="mt-2 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm file:mr-4 file:rounded-lg file:border-0 file:bg-slate-900 file:px-4 file:py-2 file:text-sm file:font-medium file:text-white"
-                  />
-                  <div class="mt-2 text-xs text-slate-500">Merged in the order you pick.</div>
-                </div>
-
-                <div class="rounded-xl border border-slate-200 p-4">
-                  <div class="flex items-center justify-between">
-                    <div class="text-sm font-medium">Preview (first selected)</div>
-                    <div class="text-xs text-slate-500">Scroll to view pages</div>
-                  </div>
-                  <div id="preview-merge" class="mt-3 h-[28rem] overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-2"></div>
-                </div>
-
-                <div class="flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    data-apply
-                    class="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition duration-200 hover:-translate-y-0.5 hover:bg-slate-800 active:translate-y-0"
-                  >
-                    Merge
-                  </button>
-                  <button
-                    type="button"
-                    data-download
-                    disabled
-                    class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-900 transition duration-200 hover:-translate-y-0.5 hover:bg-slate-50 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    Download
-                  </button>
-                  <div class="min-w-[16rem]">
-                    <label class="block text-xs text-slate-500">Output filename</label>
-                    <input
-                      data-filename
-                      type="text"
-                      value="merged.pdf"
-                      class="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                    />
-                  </div>
-                  <div data-hint class="text-sm text-slate-500"></div>
-                </div>
-
-                <div data-error class="text-sm text-rose-600"></div>
-              </form>
-            </div>
-
-            <!-- Reorder -->
-            <div id="panel-reorder" class="hidden">
-              <div class="mb-4">
-                <h2 class="text-lg font-semibold">Change Pages Order</h2>
-                <p class="mt-1 text-sm text-slate-600">
-                  Enter the new order as a comma-separated list (1-based), e.g. <span class="font-medium">3,1,2</span>.
-                </p>
-              </div>
-
-              <form id="form-reorder" data-preview-id="preview-reorder" class="space-y-4">
-                <div>
-                  <label class="text-sm font-medium">PDF file</label>
-                  <input
-                    id="pdf-reorder"
-                    name="pdf"
-                    type="file"
-                    accept="application/pdf"
-                    required
-                    class="mt-2 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm file:mr-4 file:rounded-lg file:border-0 file:bg-slate-900 file:px-4 file:py-2 file:text-sm file:font-medium file:text-white"
-                  />
-                </div>
-
-                <div class="rounded-xl border border-slate-200 p-4">
-                  <div class="flex items-center justify-between">
-                    <div class="text-sm font-medium">Preview</div>
-                    <div class="text-xs text-slate-500">Scroll to view pages</div>
-                  </div>
-                  <div id="preview-reorder" class="mt-3 h-[28rem] overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-2"></div>
-                </div>
-
-                <div>
-                  <label class="text-sm font-medium">Reorder pages (drag with mouse)</label>
-                  <input id="order-input" name="order" type="hidden" required />
-                  <div class="mt-2 rounded-xl border border-slate-200 bg-white p-3">
-                    <div class="text-xs text-slate-500">Drag items to swap order.</div>
-                    <div id="reorder-list" class="mt-3 grid gap-2 sm:grid-cols-2"></div>
-                  </div>
-                </div>
-
-                <div class="flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    data-apply
-                    class="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition duration-200 hover:-translate-y-0.5 hover:bg-slate-800 active:translate-y-0"
-                  >
-                    Reorder
-                  </button>
-                  <button
-                    type="button"
-                    data-download
-                    disabled
-                    class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-900 transition duration-200 hover:-translate-y-0.5 hover:bg-slate-50 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    Download
-                  </button>
-                  <div class="min-w-[16rem]">
-                    <label class="block text-xs text-slate-500">Output filename</label>
-                    <input
-                      data-filename
-                      type="text"
-                      value="reordered.pdf"
-                      class="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                    />
-                  </div>
-                  <div data-hint class="text-sm text-slate-500"></div>
-                </div>
-
-                <div data-error class="text-sm text-rose-600"></div>
-              </form>
-            </div>
-
-            <!-- Remove pages -->
-            <div id="panel-remove" class="hidden">
-              <div class="mb-4">
-                <h2 class="text-lg font-semibold">Remove Pages</h2>
-                <p class="mt-1 text-sm text-slate-600">
-                  Provide pages like <span class="font-medium">2,4-6</span> (1-based).
-                </p>
-              </div>
-
-              <form id="form-remove" data-preview-id="preview-remove" class="space-y-4">
-                <div>
-                  <label class="text-sm font-medium">PDF file</label>
-                  <input
-                    id="pdf-remove"
-                    name="pdf"
-                    type="file"
-                    accept="application/pdf"
-                    required
-                    class="mt-2 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm file:mr-4 file:rounded-lg file:border-0 file:bg-slate-900 file:px-4 file:py-2 file:text-sm file:font-medium file:text-white"
-                  />
-                </div>
-
-                <div class="rounded-xl border border-slate-200 p-4">
-                  <div class="flex items-center justify-between">
-                    <div class="text-sm font-medium">Preview</div>
-                    <div class="text-xs text-slate-500">Scroll to view pages</div>
-                  </div>
-                  <div id="preview-remove" class="mt-3 h-[28rem] overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-2"></div>
-                </div>
-
-                <div>
-                  <label class="text-sm font-medium">Pages to remove</label>
-                  <input id="pages-input" name="pages" type="hidden" required />
-                  <div class="mt-2 rounded-xl border border-slate-200 bg-white p-3">
-                    <div class="text-xs text-slate-500">Select pages (checked pages will be removed).</div>
-                    <div id="remove-pages" class="mt-3 grid gap-2 sm:grid-cols-3"></div>
-                  </div>
-                </div>
-
-                <div class="flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    data-apply
-                    class="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition duration-200 hover:-translate-y-0.5 hover:bg-slate-800 active:translate-y-0"
-                  >
-                    Remove
-                  </button>
-                  <button
-                    type="button"
-                    data-download
-                    disabled
-                    class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-900 transition duration-200 hover:-translate-y-0.5 hover:bg-slate-50 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    Download
-                  </button>
-                  <div class="min-w-[16rem]">
-                    <label class="block text-xs text-slate-500">Output filename</label>
-                    <input
-                      data-filename
-                      type="text"
-                      value="pages-removed.pdf"
-                      class="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                    />
-                  </div>
-                  <div data-hint class="text-sm text-slate-500"></div>
-                </div>
-
-                <div data-error class="text-sm text-rose-600"></div>
-              </form>
-            </div>
-          </div>
-        </section>
-
-        <footer class="mt-6 text-xs text-slate-500">
-          Note: Find/replace works on searchable text in the PDF. Some PDFs are scanned images and won’t contain editable text.
-        </footer>
-      </main>
-    </div>
-
-    <!-- Page maximize lightbox -->
-    <div
-      id="page-lightbox"
-      class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Page preview"
-    >
-      <div class="w-full max-w-5xl">
-        <div class="mb-3 flex items-center justify-between">
-          <div id="page-lightbox-title" class="text-sm font-medium text-white">Page</div>
-          <button
-            id="page-lightbox-close"
-            type="button"
-            class="rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-900 transition duration-200 hover:-translate-y-0.5 hover:bg-slate-50 active:translate-y-0"
-          >
-            Close
-          </button>
-        </div>
-        <div class="max-h-[80vh] overflow-auto rounded-2xl border border-slate-200 bg-white p-2">
-          <img id="page-lightbox-img" alt="" class="mx-auto w-full rounded-xl" />
         </div>
       </div>
     </div>
+  </nav>
 
-    <script src="/static/app.js?v=10"></script>
-  </body>
+  <!-- ═══ MAIN LAYOUT ═══ -->
+  <main class="pt-28 pb-28 lg:pb-10 px-6 min-h-screen">
+    <!-- STATE 1 : UPLOAD HERO (shown when no file loaded) -->
+    <section id="state-upload" class="flex flex-col items-center justify-center min-h-[70vh] lux-reveal">
+      <div class="text-center max-w-xl">
+        <p class="text-xs font-bold tracking-[0.3em] text-slate-400 uppercase mb-4 lux-reveal" style="animation-delay:0.1s">Welcome</p>
+        <h2 class="font-serif text-5xl font-bold leading-tight mb-6 lux-reveal" style="animation-delay:0.2s">Elevate Your<br/>PDF Experience</h2>
+        <p class="text-slate-400 text-lg mb-12 lux-reveal" style="animation-delay:0.3s">Upload a document to begin crafting with precision.</p>
+        <label class="lux-reveal cursor-pointer inline-block" style="animation-delay:0.4s">
+          <input type="file" id="hero-file-input" accept=".pdf" class="hidden" />
+          <div class="bg-slate-900 text-white rounded-[2rem] px-12 py-5 font-bold text-sm shadow-xl hover:bg-indigo-600 transition-all duration-500 hover:shadow-indigo-500/25 active:scale-95">
+            Select PDF
+          </div>
+        </label>
+      </div>
+    </section>
+
+    <!-- STATE 2 : UPLOADING (progress) -->
+    <section id="state-uploading" class="hidden flex-col items-center justify-center min-h-[70vh]">
+      <div class="text-center">
+        <div class="w-64 h-1.5 bg-slate-200 rounded-full mx-auto mb-8 overflow-hidden">
+          <div id="upload-progress-bar" class="h-full bg-gradient-to-r from-indigo-600 to-indigo-400 rounded-full shimmer" style="width:0%"></div>
+        </div>
+        <p class="text-xs font-bold tracking-[0.3em] text-slate-400">UPLOADING</p>
+      </div>
+    </section>
+
+    <!-- STATE 3 : WORKSPACE (sidebar + canvas + action bar) -->
+    <section id="state-workspace" class="hidden">
+      <div class="flex flex-col lg:flex-row gap-6 min-h-[calc(100vh-8rem)]">
+        <!-- LEFT SIDEBAR -->
+        <aside class="lux-sidebar w-full lg:w-80 flex-shrink-0">
+          <div class="bg-white/70 backdrop-blur-2xl rounded-[2.5rem] p-8 border border-white/60 shadow-sm h-full flex flex-col">
+            <p class="text-[10px] font-bold tracking-[0.25em] text-slate-400 uppercase mb-6">Tools</p>
+            <div class="space-y-2 mb-8" id="tool-buttons">
+              <button onclick="switchTool('find-replace')" data-tool="find-replace" class="lux-tool-btn group active">
+                <span class="lux-tool-icon text-lg">🔍</span>
+                <span>Search &amp; Refine</span>
+              </button>
+              <button onclick="switchTool('reorder')" data-tool="reorder" class="lux-tool-btn group">
+                <span class="lux-tool-icon text-lg">↕️</span>
+                <span>Visual Reorder</span>
+              </button>
+              <button onclick="switchTool('merge')" data-tool="merge" class="lux-tool-btn group">
+                <span class="lux-tool-icon text-lg">📐</span>
+                <span>Architect Merge</span>
+              </button>
+              <button onclick="switchTool('remove')" data-tool="remove" class="lux-tool-btn group lux-tool-danger">
+                <span class="lux-tool-icon text-lg">✂️</span>
+                <span>Precision Remove</span>
+              </button>
+            </div>
+            <div class="border-t border-slate-100 pt-6 flex-1 overflow-y-auto" id="tool-options">
+              <!-- Dynamically populated per tool -->
+            </div>
+          </div>
+        </aside>
+
+        <!-- CENTER CANVAS -->
+        <div class="flex-1 min-w-0">
+          <div class="bg-white/70 backdrop-blur-2xl rounded-[2.5rem] p-10 border border-white/60 shadow-sm min-h-full">
+            <div class="flex items-center justify-between mb-8">
+              <div>
+                <p class="text-[10px] font-bold tracking-[0.25em] text-slate-400 uppercase" id="canvas-subtitle">Pages</p>
+                <h3 class="font-serif text-2xl font-bold" id="canvas-title">Your Document</h3>
+              </div>
+              <div id="canvas-actions" class="flex items-center gap-3">
+                <!-- Extra per-tool header-level actions appear here -->
+              </div>
+            </div>
+            <div id="canvas-body">
+              <!-- Thumbnails / reorder list / merge list / remove checkboxes -->
+              <div id="page-grid" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-6">
+                <!-- filled by JS -->
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- RIGHT ACTION BAR -->
+        <aside class="lux-sidebar-r w-24 flex-shrink-0 hidden lg:block">
+          <div class="bg-white/70 backdrop-blur-2xl rounded-[2.5rem] p-4 border border-white/60 shadow-sm flex flex-col items-center gap-3 sticky top-28">
+            <p class="text-[8px] font-bold tracking-[0.2em] text-slate-400 uppercase mb-1">Actions</p>
+            <button id="btn-apply" class="w-14 h-14 rounded-2xl bg-slate-900 text-white flex items-center justify-center shadow-lg hover:bg-indigo-600 transition-all duration-500 active:scale-90" title="Apply Changes">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+            </button>
+            <button id="btn-download" class="w-14 h-14 rounded-2xl bg-white text-slate-900 border border-slate-200 flex items-center justify-center shadow-sm hover:bg-slate-50 transition-all duration-500 active:scale-90 hidden" title="Download">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 5v14m0 0l-7-7m7 7l7-7"/></svg>
+            </button>
+            <div class="border-t border-slate-100 w-full my-1"></div>
+            <button id="btn-reset" class="w-14 h-14 rounded-2xl bg-white text-red-500 border border-slate-200 flex items-center justify-center shadow-sm hover:bg-red-50 transition-all duration-500 active:scale-90" title="Reset / Upload New">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+        </aside>
+      </div>
+
+      <!-- MOBILE ACTION BAR -->
+      <div class="lg:hidden fixed bottom-0 left-0 right-0 z-40 px-4 pb-4">
+        <div class="bg-white/80 backdrop-blur-2xl border border-white/70 shadow-lg rounded-[1.75rem] p-3 flex items-center justify-between gap-3">
+          <button id="btn-reset-m" class="px-4 py-3 rounded-2xl bg-white text-red-500 border border-slate-200 font-bold text-xs" title="Reset / Upload New">Reset</button>
+          <button id="btn-download-m" class="px-5 py-3 rounded-2xl bg-white text-slate-900 border border-slate-200 font-bold text-xs hidden" title="Download">Download</button>
+          <button id="btn-apply-m" class="px-6 py-3 rounded-2xl bg-slate-900 text-white font-bold text-xs shadow-lg" title="Apply Changes">Apply</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ═══ LIGHTBOX ═══ -->
+  <div id="lightbox" class="fixed inset-0 z-[100] bg-black/80 backdrop-blur-xl hidden items-center justify-center p-4 sm:p-8">
+    <div class="relative w-full h-full flex items-center justify-center">
+      <div class="absolute top-0 left-0 right-0 flex items-center justify-between px-2 sm:px-4">
+        <div class="flex items-center gap-2">
+          <button id="lightbox-prev" class="w-11 h-11 rounded-2xl bg-white/10 hover:bg-white/20 text-white border border-white/20 backdrop-blur-xl flex items-center justify-center disabled:opacity-40 disabled:hover:bg-white/10" type="button" title="Previous page">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
+          </button>
+          <button id="lightbox-next" class="w-11 h-11 rounded-2xl bg-white/10 hover:bg-white/20 text-white border border-white/20 backdrop-blur-xl flex items-center justify-center disabled:opacity-40 disabled:hover:bg-white/10" type="button" title="Next page">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+          <div id="lightbox-page" class="text-white/90 text-xs sm:text-sm font-bold tracking-wider pl-1"></div>
+        </div>
+        <button id="lightbox-close" class="w-11 h-11 rounded-2xl bg-white/10 hover:bg-white/20 text-white border border-white/20 backdrop-blur-xl flex items-center justify-center" type="button" title="Close">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <img id="lightbox-img" class="max-h-[86vh] sm:max-h-[90vh] max-w-[92vw] sm:max-w-[90vw] rounded-3xl shadow-2xl" src="" alt="Page Preview" />
+    </div>
+  </div>
+
+  <!-- ═══ CONFIRM MODAL ═══ -->
+  <div id="confirm-modal" class="fixed inset-0 z-[90] bg-black/40 backdrop-blur-sm hidden items-center justify-center">
+    <div class="bg-white rounded-[2.5rem] p-10 max-w-md w-full shadow-2xl lux-modal-in text-center">
+      <div class="w-16 h-16 mx-auto mb-6 bg-amber-50 rounded-full flex items-center justify-center">
+        <svg class="w-8 h-8 text-amber-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+      </div>
+      <h4 class="font-serif text-xl font-bold mb-2" id="modal-title">Confirm Action</h4>
+      <p class="text-slate-400 text-sm mb-8" id="modal-body">Are you sure you want to proceed?</p>
+      <div class="flex gap-3">
+        <button onclick="closeModal()" class="flex-1 py-3 rounded-xl text-sm font-semibold text-slate-500 bg-slate-100 hover:bg-slate-200 transition-colors">Cancel</button>
+        <button onclick="confirmModalAction()" class="flex-1 py-3 rounded-xl text-sm font-semibold text-white bg-slate-900 hover:bg-indigo-600 transition-colors">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ TOAST ═══ -->
+  <div id="toast" class="fixed bottom-8 right-8 z-[80] hidden">
+    <div class="bg-white rounded-2xl p-5 shadow-2xl border border-slate-100 flex items-center gap-4 lux-toast-in">
+      <div class="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center flex-shrink-0">
+        <svg class="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+      </div>
+      <div>
+        <p class="font-bold text-sm" id="toast-title">Success</p>
+        <p class="text-slate-400 text-xs" id="toast-msg">Operation completed.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ HIDDEN FORMS (backend API compatibility) ═══ -->
+  <div class="hidden" aria-hidden="true">
+    <form id="form-find" method="post" enctype="multipart/form-data" action="/api/find-replace">
+      <input type="file" name="pdf" id="ff-pdf" />
+      <input type="text" name="findText" id="ff-findText" />
+      <input type="text" name="replaceText" id="ff-replaceText" />
+      <select name="fontMode" id="ff-fontMode"><option value="auto">auto</option><option value="manual">manual</option></select>
+      <select name="fontChoice" id="ff-fontChoice"></select>
+      <input type="text" name="extraFonts" id="ff-extraFonts" value="" />
+      <select name="scope" id="ff-scope"><option value="all">all</option><option value="range">range</option></select>
+      <input type="number" name="fromPage" id="ff-fromPage" value="1" />
+      <input type="number" name="toPage" id="ff-toPage" value="1" />
+    </form>
+    <form id="form-merge" method="post" enctype="multipart/form-data" action="/api/merge">
+      <input type="file" name="pdfs" id="fm-pdfs" multiple />
+    </form>
+    <form id="form-reorder" method="post" enctype="multipart/form-data" action="/api/reorder">
+      <input type="file" name="pdf" id="fr-pdf" />
+      <input type="text" name="order" id="fr-order" />
+    </form>
+    <form id="form-remove" method="post" enctype="multipart/form-data" action="/api/remove-pages">
+      <input type="file" name="pdf" id="fp-pdf" />
+      <input type="text" name="pages" id="fp-pages" />
+    </form>
+  </div>
+
+  <!-- ═══ HIDDEN PREVIEW CONTAINERS ═══ -->
+  <div class="hidden" aria-hidden="true">
+    <div id="preview-images"></div>
+  </div>
+
+  <script src="/static/app.js?v=27"></script>
+</body>
 </html>
