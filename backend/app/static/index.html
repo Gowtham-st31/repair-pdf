@@ -94,9 +94,16 @@
                 <div class="rounded-xl border border-slate-200 p-4">
                   <div class="flex items-center justify-between">
                     <div class="text-sm font-medium">Preview</div>
-                    <div class="text-xs text-slate-500">Scroll to view pages</div>
+                    <div class="flex items-center gap-4">
+                      <label class="inline-flex items-center gap-2 text-xs text-slate-600">
+                        <input id="pick-find-text" type="checkbox" class="h-4 w-4" />
+                        <span>Pick text</span>
+                      </label>
+                      <div class="text-xs text-slate-500">Scroll to view pages</div>
+                    </div>
                   </div>
                   <div id="preview-find" class="mt-3 h-[28rem] overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-2"></div>
+                  <div class="mt-2 text-xs text-slate-500">When Pick text is on, click a word in the preview to copy it into “Find text”.</div>
                 </div>
 
                 <div class="grid gap-3 sm:grid-cols-2">
@@ -151,10 +158,18 @@
                       <option value="arial">Arial</option>
                       <option value="helvetica">Helvetica</option>
                       <option value="courier">Courier (Monospace)</option>
+                      <option value="courier-new">Courier New (Windows)</option>
+                      <option value="consolas">Consolas (Windows)</option>
                       <option value="dejavu-serif">DejaVu Serif (Linux)</option>
                       <option value="dejavu-sans">DejaVu Sans (Linux)</option>
+                      <option value="dejavu-mono">DejaVu Sans Mono (Linux)</option>
                       <option value="liberation-serif">Liberation Serif (Linux)</option>
                       <option value="liberation-sans">Liberation Sans (Linux)</option>
+                      <option value="liberation-mono">Liberation Mono (Linux)</option>
+                      <option value="noto-sans">Noto Sans (Linux)</option>
+                      <option value="noto-serif">Noto Serif (Linux)</option>
+                      <option value="roboto">Roboto (Upload/Installed)</option>
+                      <option value="open-sans">Open Sans (Upload/Installed)</option>
                     </select>
                     <div class="mt-2 text-xs text-slate-500">Use Manual if the replaced text font doesn’t match.</div>
                   </div>
@@ -481,6 +496,6 @@
       </div>
     </div>
 
-    <script src="/static/app.js?v=9"></script>
+    <script src="/static/app.js?v=10"></script>
   </body>
 </html>

@@ -472,44 +472,11 @@ def _replace_case_insensitive(text: str, find_text: str, replace_text: str) -> s
 
 
 def _match_replacement_case(original: str, replacement: str) -> str:
-    """Best-effort casing match between original and replacement.
+    """Return the replacement text as-is.
 
-    Many resume headings are ALL CAPS. Inserting mixed-case text into an ALL
-    CAPS heading makes it look like a different font even if the font face is
-    the same.
+    Users expect the exact casing they type (e.g. "Gowtham"), even when the
+    original PDF text is ALL CAPS (e.g. "PROFILE").
     """
-
-    if not replacement:
-        return replacement
-
-    o = (original or "").strip()
-    if not o:
-        return replacement
-
-    # Consider only letters for case heuristics.
-    letters = [ch for ch in o if ch.isalpha()]
-    if not letters:
-        return replacement
-
-    if all(ch.isupper() for ch in letters):
-        return replacement.upper()
-    if all(ch.islower() for ch in letters):
-        return replacement.lower()
-
-    # Title-case heuristic: each word starts upper and remaining letters are lower.
-    words = [w for w in re.split(r"\s+", o) if w]
-    if words:
-        def is_title_word(w: str) -> bool:
-            w_letters = [ch for ch in w if ch.isalpha()]
-            if not w_letters:
-                return True
-            first = next((ch for ch in w if ch.isalpha()), "")
-            if not first:
-                return True
-            return first.isupper() and all((not ch.isalpha()) or ch.islower() for ch in w[w.index(first) + 1 :])
-
-        if all(is_title_word(w) for w in words):
-            return replacement.title()
 
     return replacement
 
@@ -688,16 +655,24 @@ def _family_key_from_norm(norm: str) -> Optional[str]:
         return "dejavuserif"
     if any(k in n for k in ("dejavu-sans", "dejavusans")):
         return "dejavusans"
+    if any(k in n for k in ("dejavu-mono", "dejavumono", "dejavusansmono", "dejavu-sans-mono")):
+        return "dejavusansmono"
     if "dejavu" in n:
         return "dejavu"
     if any(k in n for k in ("liberation-serif", "liberationserif")):
         return "liberationserif"
     if any(k in n for k in ("liberation-sans", "liberationsans")):
         return "liberationsans"
+    if any(k in n for k in ("liberation-mono", "liberationmono", "liberation-sans-mono", "liberationsansmono")):
+        return "liberationmono"
     if "liberation" in n:
         return "liberation"
     if "noto" in n:
         return "noto"
+    if "roboto" in n:
+        return "roboto"
+    if "open-sans" in n or "opensans" in n:
+        return "opensans"
     if "courier" in n:
         return "courier"
     if any(k in n for k in ("courier", "consolas", "monospace", "mono")):
@@ -1321,11 +1296,15 @@ def _extract_spans(text_dict: dict) -> List[Tuple[fitz.Rect, _SpanStyle]]:
     return spans
 
 
-def _pick_style_for_rect_from_spans(spans: Sequence[Tuple[fitz.Rect, _SpanStyle]], rect: fitz.Rect) -> _SpanStyle:
+def _pick_style_for_rect_from_spans(
+    spans: Sequence[Tuple[fitz.Rect, _SpanStyle]],
+    rect: fitz.Rect,
+) -> Tuple[Optional[fitz.Rect], _SpanStyle]:
     """Pick the span style that best overlaps the given rect."""
 
     best_area = 0.0
     best_style: Optional[_SpanStyle] = None
+    best_span_rect: Optional[fitz.Rect] = None
 
     for span_rect, style in spans:
         # Fast reject.
@@ -1337,10 +1316,15 @@ def _pick_style_for_rect_from_spans(spans: Sequence[Tuple[fitz.Rect, _SpanStyle]
             best_area = area
             best_style = style
 
-    return best_style if best_style and best_area > 0 else _SpanStyle(fontname=None, fontsize=None, color=None)
+            # Keep the exact span rect for baseline alignment.
+            best_span_rect = span_rect
+
+    if best_style and best_area > 0:
+        return best_span_rect, best_style
+    return None, _SpanStyle(fontname=None, fontsize=None, color=None)
 
 
-def _pick_style_for_rect_clip(page: fitz.Page, rect: fitz.Rect) -> _SpanStyle:
+def _pick_style_for_rect_clip(page: fitz.Page, rect: fitz.Rect) -> Tuple[Optional[fitz.Rect], _SpanStyle]:
     """More reliable style picker using a clipped text extraction."""
 
     try:
@@ -1348,7 +1332,7 @@ def _pick_style_for_rect_clip(page: fitz.Page, rect: fitz.Rect) -> _SpanStyle:
         spans = _extract_spans(td)
         return _pick_style_for_rect_from_spans(spans, rect)
     except Exception:  # noqa: BLE001
-        return _SpanStyle(fontname=None, fontsize=None, color=None)
+        return None, _SpanStyle(fontname=None, fontsize=None, color=None)
 
 
 def _measure_text_width(
@@ -1423,6 +1407,7 @@ def _insert_text_distributed(
     fontfile: Optional[str],
     fontsize: float,
     color: Tuple[float, float, float],
+    baseline_rect: Optional[fitz.Rect] = None,
     font_cache: Optional[Dict[Tuple[str, str], fitz.Font]] = None,
 ) -> None:
     """Insert text as individual characters distributed across rect width.
@@ -1460,7 +1445,7 @@ def _insert_text_distributed(
     gaps = max(1, len(chars) - 1)
     extra = (max_width - total) / float(gaps) if max_width > total else 0.0
 
-    point = _baseline_point(rect, fontsize=fontsize, fontname=fontname, fontfile=fontfile)
+    point = _baseline_point(baseline_rect or rect, fontsize=fontsize, fontname=fontname, fontfile=fontfile)
     x = float(point.x)
     y = float(point.y)
 
@@ -1502,6 +1487,14 @@ def _should_use_distributed_insertion(
         return False
     if not replacement_text or len(replacement_text) <= 2:
         return False
+
+    # Avoid spreading short words like "Waran" -> "ehfeh" into
+    # "E h f e h". Tracking-like distribution is only useful for
+    # longer headings.
+    orig = (original_text or "").strip()
+    repl = (replacement_text or "").strip()
+    if len(orig) < 8 or len(repl) < 8:
+        return False
     if measured_replacement <= 0:
         return False
 
@@ -1510,8 +1503,6 @@ def _should_use_distributed_insertion(
     if repl_fill < 1.20:
         return False
 
-    orig = (original_text or "").strip()
-    repl = (replacement_text or "").strip()
     if not orig:
         return False
 
@@ -1544,6 +1535,7 @@ def _insert_text_fit(
     fontfile: Optional[str] = None,
     fontsize: float,
     color: Tuple[float, float, float],
+    baseline_rect: Optional[fitz.Rect] = None,
     font_cache: Optional[Dict[Tuple[str, str], fitz.Font]] = None,
 ) -> None:
     """Insert single-line text fitted to the rect width, aligned to rect baseline.
@@ -1570,7 +1562,9 @@ def _insert_text_fit(
                 break
             size = next_size
 
-    point = _baseline_point(rect, fontsize=size, fontname=fontname, fontfile=fontfile)
+    # Align to the original span baseline (if known), not the padded redaction rect.
+    base_ref = baseline_rect or rect
+    point = _baseline_point(base_ref, fontsize=float(fontsize), fontname=fontname, fontfile=fontfile)
     page.insert_text(
         point,
         text,
@@ -1760,11 +1754,15 @@ def _find_replace_core(
                         originals.append("")
 
                 styles: List[_SpanStyle] = []
+                baseline_rects: List[Optional[fitz.Rect]] = []
                 for rect in targets:
-                    s = _pick_style_for_rect_from_spans(spans, rect)
+                    span_rect, s = _pick_style_for_rect_from_spans(spans, rect)
                     if not s.fontname:
-                        s = _pick_style_for_rect_clip(page, rect)
+                        span_rect2, s2 = _pick_style_for_rect_clip(page, rect)
+                        span_rect = span_rect2
+                        s = s2
                     styles.append(s)
+                    baseline_rects.append(span_rect)
 
                 # Fill in originals for cases where we didn't expand to a word.
                 for i, rect in enumerate(targets):
@@ -1789,7 +1787,9 @@ def _find_replace_core(
                     page.add_redact_annot(rect, fill=(1, 1, 1))
                 page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
 
-                for rect, style, original, insert_text in zip(targets, styles, originals, inserts):
+                for rect, style, original, insert_text, baseline_rect in zip(
+                    targets, styles, originals, inserts, baseline_rects
+                ):
                     target_size = style.fontsize or _estimate_font_size(rect)
                     target_color = style.color or (0.0, 0.0, 0.0)
                     mapped_font = _map_font_to_base14(style.fontname or "")
@@ -1827,11 +1827,9 @@ def _find_replace_core(
                         windows_fontfile = _try_windows_fontfile(mapped_font, bold=effective_bold, italic=effective_italic)
 
                     # Subset fonts (often "ABCDEE+FontName") may not contain glyphs
-                    # for new characters, which can render as squares. In that case,
-                    # prefer a full system font first.
+                    # for new characters, which can render as squares/blanks.
                     is_subset_font = bool(style.fontname and "+" in style.fontname)
                     introduces_new = _replacement_introduces_new_chars(original, replace_text)
-                    prefer_full_font = bool(forced_windows) or is_subset_font or introduces_new
 
                     # Priority (Auto):
                     # 1) User-forced Windows font (if chosen)
@@ -1851,6 +1849,11 @@ def _find_replace_core(
                             fontfile=embedded_fontfile,
                             font_cache=font_obj_cache,
                         )
+
+                    # Only force away from embedded fonts for the risky case:
+                    # subset font + new characters + embedded font can't render.
+                    # If glyph coverage is OK, embedded is the best match.
+                    prefer_full_font = bool(forced_windows) or (is_subset_font and introduces_new and not can_use_embedded)
 
                     # Important: if the embedded font is a subset and the replacement
                     # introduces new characters, reusing the embedded program can
@@ -1900,6 +1903,7 @@ def _find_replace_core(
                                     fontfile=embedded_fontfile,
                                     fontsize=target_size,
                                     color=target_color,
+                                    baseline_rect=baseline_rect,
                                     font_cache=font_obj_cache,
                                 )
                             else:
@@ -1911,6 +1915,7 @@ def _find_replace_core(
                                     fontfile=embedded_fontfile,
                                     fontsize=target_size,
                                     color=target_color,
+                                    baseline_rect=baseline_rect,
                                     font_cache=font_obj_cache,
                                 )
                             continue
@@ -1968,6 +1973,7 @@ def _find_replace_core(
                                     fontfile=windows_fontfile,
                                     fontsize=target_size,
                                     color=target_color,
+                                    baseline_rect=baseline_rect,
                                     font_cache=font_obj_cache,
                                 )
                             else:
@@ -1979,6 +1985,7 @@ def _find_replace_core(
                                     fontfile=windows_fontfile,
                                     fontsize=target_size,
                                     color=target_color,
+                                    baseline_rect=baseline_rect,
                                     font_cache=font_obj_cache,
                                 )
                             continue
@@ -2011,6 +2018,7 @@ def _find_replace_core(
                                 fontfile=embedded_fontfile,
                                 fontsize=target_size,
                                 color=target_color,
+                                baseline_rect=baseline_rect,
                                 font_cache=font_obj_cache,
                             )
                             continue
@@ -2038,6 +2046,7 @@ def _find_replace_core(
                                 fontfile=windows_fontfile,
                                 fontsize=target_size,
                                 color=target_color,
+                                baseline_rect=baseline_rect,
                                 font_cache=font_obj_cache,
                             )
                             continue
@@ -2066,6 +2075,7 @@ def _find_replace_core(
                                 fontfile=system_fontfile,
                                 fontsize=target_size,
                                 color=target_color,
+                                baseline_rect=baseline_rect,
                                 font_cache=font_obj_cache,
                             )
                             continue
@@ -2093,6 +2103,7 @@ def _find_replace_core(
                                 fontname=str(candidate),
                                 fontsize=target_size,
                                 color=target_color,
+                                baseline_rect=baseline_rect,
                                 font_cache=font_obj_cache,
                             )
                             break

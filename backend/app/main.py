@@ -6,6 +6,8 @@ import time
 import uuid
 from typing import Dict, List, Optional, Tuple
 
+from pydantic import BaseModel
+
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -124,6 +126,86 @@ def _render_preview_page(preview_id: str, page_number: int, *, scale: float = 1.
         raise HTTPException(status_code=500, detail="Failed to render preview") from exc
 
 
+def _pick_word_at_point(page, *, x: float, y: float) -> str:
+    """Best-effort word picker for click-to-fill Find text.
+
+    Uses PyMuPDF's word extraction and returns the word whose bbox contains the
+    point, or the nearest word within a small tolerance.
+    """
+
+    try:
+        import fitz  # PyMuPDF
+
+        p = fitz.Point(float(x), float(y))
+        words = page.get_text("words") or []
+        best = ""
+        best_dist = 1e18
+        for w in words:
+            if len(w) < 5:
+                continue
+            rect = fitz.Rect(float(w[0]), float(w[1]), float(w[2]), float(w[3]))
+            text = str(w[4] or "").strip()
+            if not text:
+                continue
+            if rect.contains(p):
+                return text
+            # Nearest word within tolerance.
+            cx = (rect.x0 + rect.x1) / 2.0
+            cy = (rect.y0 + rect.y1) / 2.0
+            dx = float(p.x) - float(cx)
+            dy = float(p.y) - float(cy)
+            d2 = dx * dx + dy * dy
+            if d2 < best_dist:
+                best_dist = d2
+                best = text
+
+        # Only return nearest if reasonably close (about ~12pt).
+        if best and best_dist <= (12.0 * 12.0):
+            return best
+        return ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+@app.post("/api/preview-pick-text")
+async def api_preview_pick_text(
+    sessionId: str = Form(...),
+    pageNumber: int = Form(...),
+    x: float = Form(...),
+    y: float = Form(...),
+    scale: float = Form(1.2),
+):
+    """Pick the word at a preview image coordinate.
+
+    Frontend provides (x,y) in *image pixels* for the rendered preview scale.
+    We convert back to PDF coords by dividing by scale.
+    """
+
+    _preview_gc()
+    entry = _preview_store.get(sessionId)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Preview session not found")
+
+    _ts, pdf_bytes, page_count = entry
+    if pageNumber < 1 or pageNumber > page_count:
+        raise HTTPException(status_code=400, detail=f"pageNumber must be between 1 and {page_count}")
+
+    try:
+        import fitz  # PyMuPDF
+
+        s = _clamp_scale(scale)
+        px = float(x) / float(s)
+        py = float(y) / float(s)
+
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        page = doc.load_page(pageNumber - 1)
+        text = _pick_word_at_point(page, x=px, y=py)
+        doc.close()
+        return {"text": text}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail="Failed to pick text") from exc
+
+
 # New route used by the UI
 @app.get("/api/preview-page/{preview_id}/{page_number}")
 def api_preview_page(preview_id: str, page_number: int, scale: float = 1.2):
@@ -134,6 +216,86 @@ def api_preview_page(preview_id: str, page_number: int, scale: float = 1.2):
 @app.get("/api/preview-session/{preview_id}/page/{page_number}")
 def api_preview_page_legacy(preview_id: str, page_number: int, scale: float = 1.2):
     return _render_preview_page(preview_id, page_number, scale=scale)
+
+
+class _PreviewPickWordReq(BaseModel):
+    sessionId: str
+    pageNumber: int
+    x: float
+    y: float
+    scale: float = 1.2
+
+
+@app.post("/api/preview-pick-word")
+def api_preview_pick_word(req: _PreviewPickWordReq):
+    """Return the word at (x,y) in the rendered preview image.
+
+    The frontend sends x/y in *image pixel coordinates* for the preview PNG.
+    We convert back to page coordinates using the render scale.
+    """
+
+    _preview_gc()
+    entry = _preview_store.get(req.sessionId)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Preview session not found")
+
+    ts, pdf_bytes, page_count = entry
+    if req.pageNumber < 1 or req.pageNumber > int(page_count or 0):
+        raise HTTPException(status_code=400, detail="Invalid pageNumber")
+
+    try:
+        import fitz  # PyMuPDF
+
+        scale = float(req.scale) if req.scale else 1.2
+        if scale <= 0.05 or scale > 6.0:
+            scale = 1.2
+
+        # Convert from image pixels back to page coordinates.
+        px = float(req.x) / scale
+        py = float(req.y) / scale
+
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        page = doc.load_page(req.pageNumber - 1)
+
+        words = page.get_text("words") or []
+        picked = ""
+        best_dist = 1e18
+
+        # First: direct hit.
+        for w in words:
+            if len(w) < 5:
+                continue
+            rect = fitz.Rect(float(w[0]), float(w[1]), float(w[2]), float(w[3]))
+            rect = rect + (-1.0, -1.0, 1.0, 1.0)  # small tolerance
+            if rect.contains(fitz.Point(px, py)):
+                picked = str(w[4] or "").strip()
+                break
+
+        # Fallback: nearest word within radius.
+        if not picked:
+            for w in words:
+                if len(w) < 5:
+                    continue
+                rect = fitz.Rect(float(w[0]), float(w[1]), float(w[2]), float(w[3]))
+                cx = float(rect.x0 + rect.width / 2.0)
+                cy = float(rect.y0 + rect.height / 2.0)
+                dx = cx - px
+                dy = cy - py
+                d2 = dx * dx + dy * dy
+                if d2 < best_dist:
+                    best_dist = d2
+                    picked = str(w[4] or "").strip()
+
+            # Ignore extremely far clicks.
+            if best_dist > (25.0 * 25.0):
+                picked = ""
+
+        doc.close()
+        return {"text": picked}
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail="Failed to pick word") from exc
 
 
 @app.post("/api/find-replace")

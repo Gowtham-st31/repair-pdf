@@ -157,6 +157,8 @@ async function renderPdfPreview(file, container) {
       img.loading = "lazy";
       img.alt = `Page ${pageNum}`;
       img.className = "w-full cursor-zoom-in rounded-xl border border-slate-200 bg-white";
+      img.dataset.pageNum = String(pageNum);
+      img.dataset.scale = "1.2";
       lazySetImgSrc(img, previewImageUrl(sessionId, pageNum, 1.2));
       img.addEventListener("click", () => openPageLightbox({ sessionId, pageNum }));
       container.appendChild(img);
@@ -395,17 +397,32 @@ function setBusy(form, busy) {
   const btn = form.querySelector("[data-apply]");
   const dl = form.querySelector("[data-download]");
   const hint = form.querySelector("[data-hint]");
-  btn.disabled = busy;
-  btn.classList.toggle("opacity-70", busy);
-  btn.classList.toggle("cursor-not-allowed", busy);
-  btn.classList.toggle("shimmer", busy);
-  btn.classList.toggle("bg-gradient-to-r", busy);
-  btn.classList.toggle("from-slate-900", busy);
-  btn.classList.toggle("via-slate-700", busy);
-  btn.classList.toggle("to-slate-900", busy);
-  btn.classList.toggle("bg-slate-900", !busy);
+  if (btn) {
+    btn.disabled = busy;
+    btn.setAttribute("aria-busy", busy ? "true" : "false");
+    btn.classList.toggle("opacity-70", busy);
+    btn.classList.toggle("cursor-not-allowed", busy);
+    btn.classList.toggle("shimmer", busy);
+    btn.classList.toggle("bg-gradient-to-r", busy);
+    btn.classList.toggle("from-slate-900", busy);
+    btn.classList.toggle("via-slate-700", busy);
+    btn.classList.toggle("to-slate-900", busy);
+    btn.classList.toggle("bg-slate-900", !busy);
+
+    const spinnerAttr = "data-busy-spinner";
+    const existing = btn.querySelector(`[${spinnerAttr}]`);
+    if (busy && !existing) {
+      const sp = document.createElement("span");
+      sp.setAttribute(spinnerAttr, "1");
+      sp.className =
+        "ml-2 inline-block h-4 w-4 rounded-full border-2 border-white/70 border-t-transparent align-[-2px] animate-spin";
+      btn.appendChild(sp);
+    }
+    if (!busy && existing) existing.remove();
+  }
   if (dl) dl.disabled = busy || !form.dataset.resultUrl;
   if (hint) {
+    hint.classList.toggle("animate-pulse", busy);
     if (busy) hint.textContent = "Working…";
     else if (hint.textContent === "Working…") hint.textContent = "";
   }
@@ -571,9 +588,12 @@ function wireApplyDownload(form, endpoint, filename) {
   const applyBtn = form.querySelector("[data-apply]");
   const downloadBtn = form.querySelector("[data-download]");
   const errorEl = form.querySelector("[data-error]");
+  const hint = form.querySelector("[data-hint]");
 
   // Prevent Enter from submitting the form (we use explicit buttons)
   form.addEventListener("submit", (ev) => ev.preventDefault());
+
+  if (!applyBtn || !downloadBtn || !errorEl) return;
 
   applyBtn.addEventListener("click", () => applyForm(form, endpoint, filename));
   downloadBtn.addEventListener("click", () => {
@@ -587,6 +607,7 @@ function wireApplyDownload(form, endpoint, filename) {
       return;
     }
     downloadUrl(url, name);
+    if (hint && hint.textContent === "Working…") hint.textContent = "";
   });
 }
 
@@ -601,10 +622,141 @@ function wireFindReplace() {
 
   const pdfInput = $("#pdf-find");
   const preview = $("#preview-find");
+  const pickToggle = $("#pick-find-text");
 
   const fontChoice = form.querySelector("select[name='fontChoice']");
   const fontModeAuto = form.querySelector("input[name='fontMode'][value='auto']");
   const fontModeManual = form.querySelector("input[name='fontMode'][value='manual']");
+
+  const findInput = form.querySelector("input[name='findText']");
+  const replaceInput = form.querySelector("input[name='replaceText']");
+  const extraFontsInput = form.querySelector("input[name='extraFonts']");
+
+  // Inline editor that appears when user clicks a word in preview.
+  let inlineEditor = null;
+  function closeInlineEditor() {
+    if (!inlineEditor) return;
+    inlineEditor.remove();
+    inlineEditor = null;
+  }
+
+  function openInlineEditorAt(clientX, clientY, pickedText) {
+    closeInlineEditor();
+
+    inlineEditor = document.createElement("div");
+    inlineEditor.className =
+      "fixed z-50 w-[20rem] max-w-[90vw] rounded-xl border border-slate-200 bg-white p-3 shadow-sm";
+    inlineEditor.style.left = `${Math.max(8, Math.min(window.innerWidth - 340, clientX + 8))}px`;
+    inlineEditor.style.top = `${Math.max(8, Math.min(window.innerHeight - 120, clientY + 8))}px`;
+
+    const title = document.createElement("div");
+    title.className = "text-xs font-medium text-slate-700";
+    title.textContent = pickedText ? `Edit: ${pickedText}` : "Edit";
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.placeholder = "Type replacement, press Enter";
+    input.className = "mt-2 block w-full rounded-xl border border-slate-200 px-3 py-2 text-sm";
+
+    const help = document.createElement("div");
+    help.className = "mt-2 text-[11px] text-slate-500";
+    help.textContent = "Press Enter to set. Then click Apply.";
+
+    inlineEditor.appendChild(title);
+    inlineEditor.appendChild(input);
+    inlineEditor.appendChild(help);
+    document.body.appendChild(inlineEditor);
+
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        closeInlineEditor();
+        return;
+      }
+      if (e.key === "Enter") {
+        const val = String(input.value || "").trim();
+        if (replaceInput) {
+          replaceInput.value = val;
+          replaceInput.dispatchEvent(new Event("input", { bubbles: true }));
+          try {
+            const applyBtn = form.querySelector("[data-apply]");
+            if (applyBtn) applyBtn.focus();
+          } catch {
+            // ignore
+          }
+        }
+        closeInlineEditor();
+      }
+    });
+
+    // Close when clicking outside.
+    const onDoc = (e) => {
+      if (!inlineEditor) return;
+      if (inlineEditor.contains(e.target)) return;
+      closeInlineEditor();
+      document.removeEventListener("mousedown", onDoc, true);
+    };
+    document.addEventListener("mousedown", onDoc, true);
+
+    try {
+      input.focus();
+      input.select();
+    } catch {
+      // ignore
+    }
+  }
+
+  async function pickWordFromPreview(ev) {
+    if (!pickToggle || !pickToggle.checked) return;
+
+    const img = ev.target;
+    if (!img || img.tagName !== "IMG") return;
+    const sessionId = preview?.dataset?.previewSession;
+    const pageNum = Number(img.dataset.pageNum);
+    const scale = Number(img.dataset.scale || "1.2");
+    if (!sessionId || !Number.isFinite(pageNum) || pageNum <= 0) return;
+
+    // Map click point from rendered CSS pixels -> image pixels.
+    const r = img.getBoundingClientRect();
+    const nx = (ev.clientX - r.left) / Math.max(1, r.width);
+    const ny = (ev.clientY - r.top) / Math.max(1, r.height);
+    const xImg = nx * (img.naturalWidth || r.width);
+    const yImg = ny * (img.naturalHeight || r.height);
+
+    try {
+      const resp = await fetch("/api/preview-pick-word", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId, pageNumber: pageNum, x: xImg, y: yImg, scale }),
+      });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const picked = String(data?.text || "").trim();
+      if (!picked) return;
+
+      if (findInput) {
+        findInput.value = picked;
+        findInput.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+
+      // Scope to the clicked page to make this feel like a direct edit.
+      if (scopeRange && fromInput && toInput) {
+        scopeRange.checked = true;
+        scopeRange.dispatchEvent(new Event("change", { bubbles: true }));
+        fromInput.value = String(pageNum);
+        toInput.value = String(pageNum);
+        fromInput.dispatchEvent(new Event("input", { bubbles: true }));
+        toInput.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+
+      // Direct edit UI: let user type replacement right from preview.
+      openInlineEditorAt(ev.clientX, ev.clientY, picked);
+
+      const hint = form.querySelector("[data-hint]");
+      if (hint) hint.textContent = `Picked: ${picked}`;
+    } catch {
+      // ignore
+    }
+  }
 
   function updateFontMode() {
     const manual = Boolean(fontModeManual && fontModeManual.checked);
@@ -617,6 +769,12 @@ function wireFindReplace() {
   if (fontModeAuto) fontModeAuto.addEventListener("change", updateFontMode);
   if (fontModeManual) fontModeManual.addEventListener("change", updateFontMode);
   updateFontMode();
+
+  // No live apply: user explicitly clicks Apply.
+  if (fontChoice) fontChoice.addEventListener("change", () => clearResult(form));
+  if (findInput) findInput.addEventListener("input", () => clearResult(form));
+  if (replaceInput) replaceInput.addEventListener("input", () => clearResult(form));
+  if (extraFontsInput) extraFontsInput.addEventListener("change", () => clearResult(form));
 
   function updateScope() {
     const isRange = scopeRange.checked;
@@ -648,7 +806,22 @@ function wireFindReplace() {
       errorEl.textContent = e?.message || String(e);
     });
     clearResult(form);
+    closeInlineEditor();
   });
+
+  // Capture clicks before the image's lightbox handler.
+  if (preview) {
+    preview.addEventListener(
+      "click",
+      (ev) => {
+        if (!pickToggle || !pickToggle.checked) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        pickWordFromPreview(ev);
+      },
+      true
+    );
+  }
 
   wireApplyDownload(form, "/api/find-replace", "find-replace.pdf");
 }
