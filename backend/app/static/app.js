@@ -97,6 +97,26 @@ function showToast(title, msg, duration = 3500) {
   showToast._t = setTimeout(() => $toast.classList.add('hidden'), duration);
 }
 
+function sanitizePdfFilename(name, fallback) {
+  const fb = String(fallback || 'result.pdf').trim() || 'result.pdf';
+  let n = String(name || '').trim();
+  if (!n) n = fb;
+  // Remove path separators and control chars.
+  n = n.replace(/[\\/\x00-\x1F\x7F]/g, '-');
+  // Collapse whitespace.
+  n = n.replace(/\s+/g, ' ').trim();
+  // Limit length.
+  if (n.length > 120) n = n.slice(0, 120).trim();
+  if (!n.toLowerCase().endsWith('.pdf')) n += '.pdf';
+  return n;
+}
+
+function getDesiredDownloadName() {
+  // Prefer what the user typed. Fall back to server header / default.
+  const typed = ($filenameInput?.value || '').trim();
+  return sanitizePdfFilename(typed, lastResultName || 'result.pdf');
+}
+
 function showModal(title, body, onConfirm) {
   $modalTitle.textContent = title;
   $modalBody.textContent = body;
@@ -925,10 +945,12 @@ $btnApply.addEventListener('click', async () => {
       }
       const cd = res.headers.get('Content-Disposition') || '';
       const fnMatch = cd.match(/filename="?([^"]+)"?/);
-      lastResultName = fnMatch ? fnMatch[1] : ($filenameInput.value || 'result') + '.pdf';
+      // Server may provide a filename, but user input should take precedence for downloads.
+      const headerName = fnMatch ? fnMatch[1] : 'result.pdf';
+      lastResultName = sanitizePdfFilename(($filenameInput?.value || '').trim(), headerName);
 
       // Fast validation: PDF magic header check (avoids extra server roundtrip).
-      const nextName = lastResultName || ((($filenameInput.value || 'result') + '.pdf'));
+      const nextName = lastResultName || getDesiredDownloadName();
       const nextFile = new File([outBlob], nextName, { type: 'application/pdf' });
       const okPdf = await isProbablyPdfBlob(outBlob);
       if (!okPdf) {
@@ -1053,7 +1075,7 @@ $btnDownload.addEventListener('click', () => {
   const url = URL.createObjectURL(lastResultBlob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = lastResultName || 'result.pdf';
+  a.download = getDesiredDownloadName();
   document.body.appendChild(a);
   a.click();
   setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 200);
