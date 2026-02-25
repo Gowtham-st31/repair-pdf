@@ -1398,6 +1398,80 @@ def _font_supports_text(
     return True
 
 
+_PROBE_GLYPH_CACHE: Dict[Tuple[str, int, int], bool] = {}
+
+
+def _font_renders_text_probe(
+    text: str,
+    *,
+    fontsize: float,
+    fontfile: Optional[str],
+) -> bool:
+    """Verify a font can actually *draw* the requested characters.
+
+    Some embedded subset fonts have incomplete / broken Unicode mappings.
+    They may pass `has_glyph()` but still render blanks when inserting
+    Unicode text. This probe renders each distinct non-space character onto a
+    tiny scratch page and checks for non-white pixels.
+
+    Only use this for risky cases (e.g. subset embedded fonts).
+    """
+
+    if not text:
+        return True
+    if not fontfile:
+        return True
+
+    # Limit to distinct characters to keep it fast.
+    chars = []
+    seen: Set[str] = set()
+    for ch in text:
+        if ch.isspace():
+            continue
+        if ch in seen:
+            continue
+        seen.add(ch)
+        chars.append(ch)
+
+    # Cache by (fontfile, fontsize_x10, codepoint).
+    size_key = int(round(float(fontsize) * 10.0))
+    for ch in chars:
+        key = (fontfile, size_key, ord(ch))
+        cached = _PROBE_GLYPH_CACHE.get(key)
+        if cached is not None:
+            if not cached:
+                return False
+            continue
+
+        ok = False
+        try:
+            doc = fitz.open()
+            page = doc.new_page(width=220, height=160)
+            # Use a deterministic internal font name; fontfile provides the program.
+            page.insert_text(
+                fitz.Point(20, 100),
+                ch,
+                fontname="probe",
+                fontfile=fontfile,
+                fontsize=max(6.0, float(fontsize)),
+                color=(0, 0, 0),
+                overlay=True,
+            )
+            pix = page.get_pixmap(alpha=False)
+            samples = pix.samples  # RGB bytes
+            # White background => all bytes are 255.
+            ok = any(b != 255 for b in samples)
+            doc.close()
+        except Exception:  # noqa: BLE001
+            ok = False
+
+        _PROBE_GLYPH_CACHE[key] = ok
+        if not ok:
+            return False
+
+    return True
+
+
 def _insert_text_distributed(
     page: fitz.Page,
     rect: fitz.Rect,
@@ -1850,6 +1924,16 @@ def _find_replace_core(
                             font_cache=font_obj_cache,
                         )
 
+                        # Extra safety for embedded subset fonts: ensure the font can
+                        # actually draw the glyphs (Render/Linux often exposes broken
+                        # Unicode maps on subset fonts).
+                        if can_use_embedded and is_subset_font:
+                            can_use_embedded = _font_renders_text_probe(
+                                insert_text,
+                                fontsize=target_size,
+                                fontfile=embedded_fontfile,
+                            )
+
                     # Only force away from embedded fonts for the risky case:
                     # subset font + new characters + embedded font can't render.
                     # If glyph coverage is OK, embedded is the best match.
@@ -1997,7 +2081,7 @@ def _find_replace_core(
                     # IMPORTANT: do not do this when we already decided we should prefer
                     # a full font (e.g. subset fonts + new glyphs), otherwise letters can
                     # go missing.
-                    if embedded_fontfile and not prefer_full_font:
+                    if embedded_fontfile and can_use_embedded and not prefer_full_font:
                         try:
                             embed_name = f"emb_{_normalize_fontname(style.fontname or 'font')}_{page_index}"
                             if collect_debug and not debug:
