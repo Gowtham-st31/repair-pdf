@@ -304,7 +304,7 @@ function setNavStatus(text) {
 }
 
 function getBusyLabelForTool(tool) {
-  if (tool === 'find-replace') return 'TXT processing…';
+  if (tool === 'find-replace') return 'processing…';
   return 'Processing…';
 }
 
