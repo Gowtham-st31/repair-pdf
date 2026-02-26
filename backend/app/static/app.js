@@ -290,6 +290,22 @@ window.addEventListener('keydown', (e) => {
 function setNavStatus(text) {
   $navStatus.textContent = text;
   $navStatus.classList.toggle('hidden', !text);
+
+  // Visual status cue (CSS-defined) so we don't rely on Tailwind JIT for
+  // dynamic class names.
+  $navStatus.classList.remove('nav-status--busy', 'nav-status--ready');
+  if (!text) return;
+  const t = String(text).toLowerCase();
+  if (t.includes('processing')) {
+    $navStatus.classList.add('nav-status--busy');
+  } else if (t === 'ready') {
+    $navStatus.classList.add('nav-status--ready');
+  }
+}
+
+function getBusyLabelForTool(tool) {
+  if (tool === 'find-replace') return 'TXT processing…';
+  return 'Processing…';
 }
 
 function setBusy(busy, label) {
@@ -918,7 +934,7 @@ $btnApply.addEventListener('click', async () => {
     return;
   }
 
-  setBusy(true, 'Processing…');
+  setBusy(true, getBusyLabelForTool(currentTool));
 
   try {
     let res;
