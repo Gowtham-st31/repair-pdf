@@ -1,5 +1,6 @@
 from __future__ import annotations
-
+from fastapi.responses import FileResponse
+import os
 from io import BytesIO
 from pathlib import Path
 import time
@@ -18,6 +19,10 @@ APP_DIR = Path(__file__).resolve().parent
 STATIC_DIR = APP_DIR / "static"
 
 app = FastAPI(title="PDF Editor")
+@app.get("/ads.txt")
+def ads_txt():
+    file_path = os.path.join(os.path.dirname(__file__), "ads.txt")
+    return FileResponse(file_path, media_type="text/plain")
 
 
 @app.middleware("http")
@@ -392,8 +397,3 @@ async def api_remove_pages(pdf: UploadFile = File(...), pages: str = Form(...)):
     except pdf_ops.PdfOpError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-from flask import send_from_directory
-
-@app.route('/ads.txt')
-def ads_txt():
-    return send_from_directory('.', 'ads.txt')
