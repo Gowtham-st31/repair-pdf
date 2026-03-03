@@ -391,3 +391,9 @@ async def api_remove_pages(pdf: UploadFile = File(...), pages: str = Form(...)):
         return _pdf_stream_response(out, filename="pages-removed.pdf")
     except pdf_ops.PdfOpError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+from flask import send_from_directory
+
+@app.route('/ads.txt')
+def ads_txt():
+    return send_from_directory('.', 'ads.txt')
