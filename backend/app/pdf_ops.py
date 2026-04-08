@@ -471,6 +471,90 @@ def _replace_case_insensitive(text: str, find_text: str, replace_text: str) -> s
         return text.replace(find_text, replace_text)
 
 
+def _count_case_insensitive_occurrences(text: str, find_text: str) -> int:
+    if not text or not find_text:
+        return 0
+    try:
+        pattern = re.compile(re.escape(find_text), re.IGNORECASE)
+        return len(pattern.findall(text))
+    except Exception:  # noqa: BLE001
+        return text.count(find_text)
+
+
+def _should_reflow_line_on_replace(find_text: str, replace_text: str) -> bool:
+    """When replacement length changes, redrawing the full line avoids overlap/gaps."""
+
+    ft = str(find_text or "")
+    rt = str(replace_text or "")
+    if not ft:
+        return False
+    if "\n" in ft or "\n" in rt:
+        return False
+    return len(ft) != len(rt)
+
+
+def _extract_line_entries(text_dict: dict) -> List[Tuple[str, fitz.Rect, str]]:
+    """Extract line-level text/bboxes as (line_key, rect, text)."""
+
+    entries: List[Tuple[str, fitz.Rect, str]] = []
+    for b_idx, block in enumerate(text_dict.get("blocks", []) or []):
+        for l_idx, line in enumerate(block.get("lines", []) or []):
+            bbox = line.get("bbox")
+            if not bbox:
+                continue
+
+            parts: List[str] = []
+            for span in line.get("spans", []) or []:
+                t = span.get("text")
+                if isinstance(t, str):
+                    parts.append(t)
+
+            text = "".join(parts)
+            if not text.strip():
+                continue
+
+            key = f"{b_idx}:{l_idx}"
+            entries.append((key, fitz.Rect(bbox), text))
+
+    return entries
+
+
+def _pick_line_for_rect(
+    line_entries: Sequence[Tuple[str, fitz.Rect, str]],
+    rect: fitz.Rect,
+) -> Optional[Tuple[str, fitz.Rect, str]]:
+    """Pick the line whose bbox best overlaps the target rect."""
+
+    best_area = 0.0
+    best: Optional[Tuple[str, fitz.Rect, str]] = None
+
+    for key, line_rect, line_text in line_entries:
+        if not line_rect.intersects(rect):
+            continue
+        inter = line_rect & rect
+        area = float(inter.get_area()) if inter else 0.0
+        if area > best_area:
+            best_area = area
+            best = (key, line_rect, line_text)
+
+    if best is not None:
+        return best
+
+    # Fallback: nearest line center by y-distance.
+    cy = (float(rect.y0) + float(rect.y1)) / 2.0
+    best_dy = 1e18
+    for key, line_rect, line_text in line_entries:
+        lcy = (float(line_rect.y0) + float(line_rect.y1)) / 2.0
+        dy = abs(cy - lcy)
+        if dy < best_dy:
+            best_dy = dy
+            best = (key, line_rect, line_text)
+
+    if best and best_dy <= max(3.0, float(rect.height) * 1.25):
+        return best
+    return None
+
+
 def _match_replacement_case(original: str, replacement: str) -> str:
     """Return the replacement text as-is.
 
@@ -1802,17 +1886,22 @@ def _find_replace_core(
                 if not rects:
                     continue
 
+                line_reflow = _should_reflow_line_on_replace(find_text, replace_text)
+
                 # Parse text once per page (this is expensive) and reuse for all matches.
                 try:
                     page_text = page.get_text("dict")
                     spans = _extract_spans(page_text)
+                    line_entries = _extract_line_entries(page_text)
                 except Exception:  # noqa: BLE001
                     spans = []
+                    line_entries = []
 
                 # Expand each match to a whole word bbox when the match is a substring.
                 targets: List[fitz.Rect] = []
                 originals: List[str] = []
                 inserts: List[str] = []
+                seen_line_keys: Set[str] = set()
                 for rect in rects:
                     trect, orig_word, replaced_word = _expand_rect_to_word(
                         page,
@@ -1820,12 +1909,41 @@ def _find_replace_core(
                         find_text=find_text,
                         replace_text=replace_text,
                     )
-                    targets.append(trect)
-                    inserts.append(replaced_word)
-                    if orig_word:
-                        originals.append(orig_word)
-                    else:
-                        originals.append("")
+
+                    target_rect = trect
+                    original_text = orig_word or ""
+                    insert_text = replaced_word
+
+                    if line_reflow and line_entries:
+                        picked = _pick_line_for_rect(line_entries, trect)
+                        if picked is not None:
+                            line_key, line_rect, line_text = picked
+                            replaced_line = _replace_case_insensitive(line_text, find_text, replace_text)
+                            if replaced_line != line_text:
+                                if line_key in seen_line_keys:
+                                    continue
+                                seen_line_keys.add(line_key)
+
+                                # Redact/rewrite the full line to avoid in-line overlap or
+                                # large visual gaps when replacement length changes.
+                                h = max(1.0, float(line_rect.height))
+                                pad_x = max(2.0, h * 0.16)
+                                pad_y = max(1.0, h * 0.10)
+                                target_rect = fitz.Rect(
+                                    float(line_rect.x0) - pad_x,
+                                    float(line_rect.y0) - pad_y,
+                                    float(line_rect.x1) + pad_x,
+                                    float(line_rect.y1) + pad_y,
+                                )
+                                original_text = line_text
+                                insert_text = replaced_line
+
+                    targets.append(target_rect)
+                    originals.append(original_text)
+                    inserts.append(insert_text)
+
+                if not targets:
+                    continue
 
                 styles: List[_SpanStyle] = []
                 baseline_rects: List[Optional[fitz.Rect]] = []
@@ -1846,7 +1964,11 @@ def _find_replace_core(
                         originals[i] = (page.get_textbox(rect) or "").strip()
                     except Exception:  # noqa: BLE001
                         originals[i] = find_text
-                replace_count += len(rects)
+
+                # Count based on actual replaced text regions (line or word).
+                for original in originals:
+                    c = _count_case_insensitive_occurrences(original, find_text)
+                    replace_count += c if c > 0 else 1
 
                 # Extract needed embedded fonts once per page/doc.
                 for style in styles:
